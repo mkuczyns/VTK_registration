@@ -3,7 +3,8 @@
 *
 *   Created by:     Michael Kuczynski
 *   Created on:     19/01/2019
-*   Version:        1.2
+*   Updated on:     06/03/2019
+*   Version:        1.3
 *   Description:    Implementation of additional classes and functions
 *                   used by the main program.
 ****************************************************************************/
@@ -34,9 +35,10 @@ std::string ImageMessage::windowFormat( int window )
 /***************************************************************************/
 
 /************************* Other helper functions **************************/
-fileType_t checkInputs( std::string inputFile )
+bool checkInputs( std::string dicomFile, std::string objFile )
 {
-    fileType_t fileType;
+    bool validDICOM = false;
+    bool validOBJ = false;
 
     /* 
     *   Attempt to find a period in the input arguement that seperates filename and filetype.
@@ -49,97 +51,69 @@ fileType_t checkInputs( std::string inputFile )
     *   There are ways to check if a variable contains a file or directory, but they are specific to
     *   certain operating systems...
     */
-    std::size_t period_Index = inputFile.find_last_of(".");
+    std::size_t dicomPeriod = dicomFile.find_last_of(".");
+    std::size_t objPeriod   = objFile.find_last_of(".");
 
     /* 
     *   We can have potential problems here where a period is included in the file path.
-    *   For this assignment, file extensions will only be ".dcm" or ".nii".
+    *   For this assignment, file extensions will only be ".dcm".
     *   Thus, we can say that if the third last character in the input is not a period, we likely have a directory.
     */
-    if ( period_Index == std::string::npos || ( inputFile[inputFile.length() - 4] ) != '.' )
+    if ( dicomPeriod == std::string::npos || ( dicomFile[dicomFile.length() - 4] ) != '.' )
     {
-        // Input is a directory containing a DICOM series
-        fileType.type = 0;
-        std::cout << "Input provided is a directory. Checking contents of the directory..." << std::endl;
-        std::cout << "Reading DICOM series..." << std::endl;
+        // TO-DO: Find a way to detect if the provided directory is valid (on all systems...)
+
+        // First input is a directory containing a DICOM series
+        validDICOM = true;
+        std::cout << "First input arguement is a directory. Checking contents of the directory..." << std::endl;
+        std::cout << "Reading DICOM series from " << dicomFile << "..." << std::endl;
     }
-    else if ( period_Index != std::string::npos )
+    else if ( dicomPeriod != std::string::npos )
     {
         // Input is a file. Check filetype.
         std::cout << "Input provided is a file. Checking the filetype..." << std::endl;
         
         std::string fileExtension;
-        fileExtension.assign(inputFile, period_Index, 4);
+        fileExtension.assign(dicomFile, dicomPeriod, 4);
 
         if ( fileExtension == ".dcm" )
         {
-            fileType.type = -1;
-        }
-        else if ( fileExtension == ".nii" )
-        {
-            fileType.type = 1;
-            std::cout << "Reading NIfTI image..." << std::endl;
+            validDICOM = true;
         }
         else
         {
-            // Only accept DICOM or NIfTI filetypes.
-            fileType.type = -1;
+            validDICOM = false;
         }
     }
-
-    return fileType;
-}
-
-
-
-int clamp( int value, int low = -1, int high = 1 )
-{
-    return std::min( std::max(value, low), high );
-} 
-
-
-
-void setThreshold( int tissueType, int& lower, int& upper )
-{
-    switch ( tissueType )
+    else
     {
-        case -1:        // Invalid tissue input
-        {
-            break;
-        }
+        // Only accept DICOM filetypes.
+        validDICOM = false;
+        std::cout << "ERROR: Incorrect input arguement. Please provide a valid DICOM directory." << std::endl;
+    }
 
-        case 0:         // Bone
-        {
-            lower = 200;
-            upper = 5000;
-            break;
-        }
+    /*
+    *   Check the input OBJ file to make sure its the correct filetype.
+    *   Use the same method as checking valid DICOM directories above.
+    */
+    if ( objPeriod != std::string::npos || ( objFile[objFile.length() - 4] ) == '.' ) 
+    {
+        // Second input is an OBJ file
+        std::string fileExtension;
+        fileExtension.assign( objFile, objPeriod, 4);
 
-        case 1:         // Fat
+        if ( fileExtension == ".obj" )
         {
-            lower = 200;
-            upper = 600;
-            break;
+            validOBJ = true;
+            std::cout << "Reading OBJ file " << objFile << "..." << std::endl;
         }
-
-        case 2:         // Muscle
+        else
         {
-            lower = 300;
-            upper = 500;
-            break;
-        }
-
-        case 3:         // Air
-        {
-            lower = 0;
-            upper = 100;
-            break;
-        }
-
-        default:        // Default case
-        {
-            break;
+            validOBJ = false;
+            std::cout << "ERROR: Incorrect input arguement. Please provide a valid OBJ file or directory." << std::endl;
         }
     }
+
+    return ( validDICOM * validOBJ );
 }
 /***************************************************************************/

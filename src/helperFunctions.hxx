@@ -30,6 +30,8 @@
 #include <vtkImageActor.h>
 #include <vtkDICOMImageReader.h>
 #include <vtkNIFTIImageReader.h>
+#include <vtkMetaImageReader.h>
+#include <vtkOBJReader.h>
 #include <vtkInteractorStyleImage.h>
 
 #include <vtkTextProperty.h>
@@ -54,7 +56,14 @@
 #include <vtkVolumeProperty.h>
 #include <vtkColorTransferFunction.h>
 #include <vtkPiecewiseFunction.h>
-#include <vtkMetaImageReader.h>
+#include <vtkIterativeClosestPointTransform.h>
+#include <vtkTransformPolyDataFilter.h>
+#include <vtkLandmarkTransform.h>
+
+#include <vtkMath.h>
+#include <vtkMatrix4x4.h>
+#include <vtkProperty.h>
+#include <vtkImageReslice.h>
 
 /* 
 *   A helper class to display messages with information about current slice
@@ -95,31 +104,16 @@ class ImageMessage
 /************************* Other helper functions **************************/
 
 /*
-*   Global threshold variables. Values will change depending on
-*   the specified input tissue type to segment.
-*/
-extern int upperThreshold, lowerThreshold;
-
-int clamp( int value );
-
-struct fileType_t
-{
-    int type;
-    fileType_t( int _type ) : type{ clamp( _type ) } {}
-    fileType_t() : type{ -1 } {}
-};
-
-/*
 *   Check the input arguements provided in the commandline when running the program.
 *
-*   @param   inputArguement   Input arguement from commandline
+*   @param   dicomFile   input DICOM directory
+*   @param   objFile     input OBJ file
 *
-*   @returns the integer corresponding to the input type
-*            -1 for invalid arguement
-*             0 for a DICOM directory
-*             1 for a NIfTI file
+*   @returns a boolean representing whether the input arguements are valid
+*            FALSE for invalid arguement
+*            TRUE for a valid DICOM directory and valid OBJ file
 */
-fileType_t checkInputs( std::string inputFile );
+bool checkInputs( std::string dicomFile, std::string objFile );
 
 /***************************************************************************/
 
