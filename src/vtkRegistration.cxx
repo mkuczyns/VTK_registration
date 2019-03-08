@@ -125,14 +125,16 @@ int main(int argc, char* argv[])
     ***************************************************************/
     std::cout << "\n**Starting image registration** \n";
 
+    // Perform the registration between the DICOM images and the OBJ file
     vtkSmartPointer<vtkIterativeClosestPointTransform> icp = vtkSmartPointer<vtkIterativeClosestPointTransform>::New();
     icp->SetSource( obj );
     icp->SetTarget( decimate->GetOutput() );
-    icp->SetMaximumNumberOfIterations( 100 );
+    icp->SetMaximumNumberOfIterations( 75 );
     icp->GetLandmarkTransform()->SetModeToRigidBody();
     icp->StartByMatchingCentroidsOn();
     icp->Update();
 
+    // Output the transformation matrix
     vtkSmartPointer<vtkMatrix4x4> m = icp->GetMatrix();
     std::cout << "\nThe resulting transformation matrix is: \n" << std::fixed << std::setprecision(2) << *m;
 
@@ -140,15 +142,11 @@ int main(int argc, char* argv[])
     icpTransformFilter->SetMatrix( icp->GetMatrix() );
     icpTransformFilter->Update();
 
-    // Image reslicing of the filtered image
-
+    // Perform the transformation using the transformation matrix determined above
     std::cout << "Transforming the original image into the new coordinate space...";
 
-    vtkSmartPointer<vtkImageData> gaussianSmoothFilterTransform = vtkSmartPointer<vtkImageData>::New();
-    gaussianSmoothFilterTransform->DeepCopy( gaussianSmoothFilter->GetOutput() );
-
     vtkSmartPointer<vtkImageReslice> reslice = vtkSmartPointer<vtkImageReslice>::New();
-    reslice->SetInputData( gaussianSmoothFilterTransform );
+    reslice->SetInputData( gaussianSmoothFilter->GetOutput() );
     reslice->InterpolateOff();  // On for nearest neighbour, off for linear
     reslice->AutoCropOutputOn();
     reslice->SetResliceTransform( icpTransformFilter );
@@ -242,6 +240,6 @@ int main(int argc, char* argv[])
     std::cout << "Done! \n";
 
     interactor->Start();
-    
+
     return EXIT_SUCCESS;
 }
