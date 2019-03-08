@@ -65,13 +65,13 @@ bool checkInputs( std::string dicomFile, std::string objFile )
 
         // First input is a directory containing a DICOM series
         validDICOM = true;
-        std::cout << "First input arguement is a directory. Checking contents of the directory..." << std::endl;
-        std::cout << "Reading DICOM series from " << dicomFile << "..." << std::endl;
+        std::cout << "First input arguement is a directory. Checking contents of the directory... \n";
+        std::cout << "Reading DICOM series from " << dicomFile << "... \n";
     }
     else if ( dicomPeriod != std::string::npos )
     {
         // Input is a file. Check filetype.
-        std::cout << "Input provided is a file. Checking the filetype..." << std::endl;
+        std::cout << "Input provided is a file. Checking the filetype... \n";
         
         std::string fileExtension;
         fileExtension.assign(dicomFile, dicomPeriod, 4);
@@ -89,7 +89,7 @@ bool checkInputs( std::string dicomFile, std::string objFile )
     {
         // Only accept DICOM filetypes.
         validDICOM = false;
-        std::cout << "ERROR: Incorrect input arguement. Please provide a valid DICOM directory." << std::endl;
+        std::cout << "ERROR: Incorrect input arguement. Please provide a valid DICOM directory. \n";
     }
 
     /*
@@ -105,12 +105,12 @@ bool checkInputs( std::string dicomFile, std::string objFile )
         if ( fileExtension == ".obj" )
         {
             validOBJ = true;
-            std::cout << "Reading OBJ file " << objFile << "..." << std::endl;
+            std::cout << "Reading OBJ file " << objFile << "... \n";
         }
         else
         {
             validOBJ = false;
-            std::cout << "ERROR: Incorrect input arguement. Please provide a valid OBJ file or directory." << std::endl;
+            std::cout << "ERROR: Incorrect input arguement. Please provide a valid OBJ file or directory. \n";
         }
     }
 

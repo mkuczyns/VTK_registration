@@ -48,6 +48,7 @@
 #include <vtkImageGaussianSmooth.h>
 
 #include <vtkMarchingCubes.h>
+#include <vtkDecimatePro.h>
 #include <vtkPolyDataMapper.h>
 #include <vtkImageThreshold.h>
 
@@ -62,6 +63,7 @@
 
 #include <vtkMath.h>
 #include <vtkMatrix4x4.h>
+#include <vtkTransform.h>
 #include <vtkProperty.h>
 #include <vtkImageReslice.h>
 

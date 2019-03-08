@@ -13,7 +13,9 @@ vtkStandardNewMacro(myInteractorStyler);
 
 int main(int argc, char* argv[])
 {
-    // Check the number of input parameters
+    /***************************************************************
+    *   Check input arguements
+    ***************************************************************/
     if ( argc != 3 )
     {
         std::cout << "ERROR: Incorrect program usage." << std:: endl;
@@ -21,12 +23,14 @@ int main(int argc, char* argv[])
         return EXIT_FAILURE;
     }
 
-    vtkSmartPointer<vtkImageData> volume = vtkSmartPointer<vtkImageData>::New();
-    vtkSmartPointer<vtkPolyData>  obj    = vtkSmartPointer<vtkPolyData>::New();
+    vtkSmartPointer<vtkPolyData> obj = vtkSmartPointer<vtkPolyData>::New();
 
     vtkSmartPointer<vtkDICOMImageReader> dicomReader;
     vtkSmartPointer<vtkOBJReader>        objReader;
 
+    /***************************************************************
+    *   Read in the provided DICOM and OBJ files
+    ***************************************************************/
     // Create a variable for the input arguement (if valid type).
     std::string dicomFile = "";
     std::string objFile = "";
@@ -47,138 +51,197 @@ int main(int argc, char* argv[])
     dicomReader->SetDirectoryName( dicomFile.c_str() );
     dicomReader->Update();
 
-    volume->DeepCopy( dicomReader->GetOutput() );
-
     // Read in the OBJ file
     objReader = vtkSmartPointer<vtkOBJReader>::New();
     objReader->SetFileName( objFile.c_str() );
     objReader->Update();
 
-    obj->DeepCopy( objReader->GetOutput() );
+    obj = objReader->GetOutput();
+
+    /***************************************************************
+    *   Apply a Gaussian filter to the DICOM series
+    ***************************************************************/
+    vtkSmartPointer<vtkImageGaussianSmooth> gaussianSmoothFilter = vtkSmartPointer<vtkImageGaussianSmooth>::New();
+    gaussianSmoothFilter->SetInputConnection( dicomReader->GetOutputPort() );
+    gaussianSmoothFilter->SetStandardDeviation( 1.0 );
+    gaussianSmoothFilter->SetRadiusFactors( 1.0, 1.0, 1.0 );
+    gaussianSmoothFilter->SetDimensionality( 3 );
+    gaussianSmoothFilter->Update();
+
+    /***************************************************************
+    *   Segment the input DICOM series
+    ***************************************************************/
+    int lowerThresh = 0, upperThresh = 0;
+    double isoValue = 0.0;
+
+    // Get the threshold and isovalue parameters from the user
+    std::cout << "\n**Performing image segmentation** \n";
+    std::cout << "Please enter upper and lower threshold values (for this assignment, it is recommended to select values between -800 to -600): \n";
+    std::cout << "Lower Threshold = ";
+    std::cin >> lowerThresh;
+    std::cout << "Upper Threshold = ";
+    std::cin >> upperThresh;
+
+    std::cout << "Applying global threshold...";
+
+    // Apply the global threshold
+    vtkSmartPointer<vtkImageThreshold> globalThresh = vtkSmartPointer<vtkImageThreshold>::New();
+    globalThresh->SetInputData( gaussianSmoothFilter->GetOutput() );
+    globalThresh->ThresholdBetween( lowerThresh, upperThresh );
+    globalThresh->ReplaceInOn();
+    globalThresh->SetInValue( 1 );
+    globalThresh->ReplaceOutOn();
+    globalThresh->SetOutValue( 0 );
+    globalThresh->SetOutputScalarTypeToFloat();
+    globalThresh->Update();
+
+    std::cout << "Done! \n";
+
+    /***************************************************************
+    *   Use the Marching cubes algorithm to generate the surface
+    ***************************************************************/
+    std::cout << "\n**Generating surface using Marching cubes** \n";
+
+    std::cout << "Please enter the desired isovalue for the Marching Cubes algortihm (between 0-1): ";
+    std::cin >> isoValue;
+
+    std::cout << "Starting surface rendering...";
+
+    vtkSmartPointer<vtkMarchingCubes> surface = vtkSmartPointer<vtkMarchingCubes>::New();
+    surface->SetInputData( globalThresh->GetOutput() );
+    surface->ComputeNormalsOn();
+    surface->SetValue( 0, isoValue );
+
+    // Reduce the number of triangles by half to speed up computation
+    vtkSmartPointer<vtkDecimatePro> decimate = vtkSmartPointer<vtkDecimatePro>::New();
+    decimate->SetInputConnection( surface->GetOutputPort() );
+    decimate->SetTargetReduction( 0.5 );
+    decimate->Update();
+
+    std::cout << "Done! \n";
+
+    /***************************************************************
+    *   Perform ICP registration
+    ***************************************************************/
+    std::cout << "\n**Starting image registration** \n";
+
+    vtkSmartPointer<vtkIterativeClosestPointTransform> icp = vtkSmartPointer<vtkIterativeClosestPointTransform>::New();
+    icp->SetSource( obj );
+    icp->SetTarget( decimate->GetOutput() );
+    icp->SetMaximumNumberOfIterations( 100 );
+    icp->GetLandmarkTransform()->SetModeToRigidBody();
+    icp->StartByMatchingCentroidsOn();
+    icp->Update();
+
+    vtkSmartPointer<vtkMatrix4x4> m = icp->GetMatrix();
+    std::cout << "\nThe resulting transformation matrix is: \n" << std::fixed << std::setprecision(2) << *m;
+
+    vtkSmartPointer<vtkTransform> icpTransformFilter = vtkSmartPointer<vtkTransform>::New();
+    icpTransformFilter->SetMatrix( icp->GetMatrix() );
+    icpTransformFilter->Update();
+
+    // Image reslicing of the filtered image
+
+    std::cout << "Transforming the original image into the new coordinate space...";
+
+    vtkSmartPointer<vtkImageData> gaussianSmoothFilterTransform = vtkSmartPointer<vtkImageData>::New();
+    gaussianSmoothFilterTransform->DeepCopy( gaussianSmoothFilter->GetOutput() );
+
+    vtkSmartPointer<vtkImageReslice> reslice = vtkSmartPointer<vtkImageReslice>::New();
+    reslice->SetInputData( gaussianSmoothFilterTransform );
+    reslice->InterpolateOff();  // On for nearest neighbour, off for linear
+    reslice->AutoCropOutputOn();
+    reslice->SetResliceTransform( icpTransformFilter );
+    reslice->Update();
+
+    std::cout << "Done! \n";
+
+    std::cout << "Performing image segmentation on the transformed image...";
+
+    // Now render the transformed image
+    // Since we had to reslice the original image, we will need to segment and render the resliced image again...
+    vtkSmartPointer<vtkImageThreshold> globalThreshTransformed = vtkSmartPointer<vtkImageThreshold>::New();
+    globalThreshTransformed->SetInputData( reslice->GetOutput() );
+    globalThreshTransformed->ThresholdBetween( lowerThresh, upperThresh );
+    globalThreshTransformed->ReplaceInOn();
+    globalThreshTransformed->SetInValue( 1 );
+    globalThreshTransformed->ReplaceOutOn();
+    globalThreshTransformed->SetOutValue( 0 );
+    globalThreshTransformed->SetOutputScalarTypeToFloat();
+    globalThreshTransformed->Update();
+
+    std::cout << "Done! \n";
+
+    std::cout << "Starting surface rendering...";
+
+    vtkSmartPointer<vtkMarchingCubes> surfaceTransformed = vtkSmartPointer<vtkMarchingCubes>::New();
+    surfaceTransformed->SetInputData( globalThreshTransformed->GetOutput() );
+    surfaceTransformed->ComputeNormalsOn();
+    surfaceTransformed->SetValue( 0, isoValue );
+
+    // Reduce the number of triangles by half to speed up computation
+    vtkSmartPointer<vtkDecimatePro> decimateTransformed = vtkSmartPointer<vtkDecimatePro>::New();
+    decimateTransformed->SetInputConnection( surfaceTransformed->GetOutputPort() );
+    decimateTransformed->SetTargetReduction( 0.5 );
+    decimateTransformed->Update();
+
+    std::cout << "Done! \n";
+
+    /***************************************************************
+    *   Add mappers, actors, renderer, and setup the scene
+    ***************************************************************/
+    std::cout << "\n**Rendering the scene** \n";
+
+    // Define mappers
+    // 1. Original Image
+    // vtkSmartPointer<vtkPolyDataMapper> sourceMapper = vtkSmartPointer<vtkPolyDataMapper>::New();
+    // sourceMapper->SetInputData( decimate->GetOutput() );
+
+    // vtkSmartPointer<vtkActor> sourceActor = vtkSmartPointer<vtkActor>::New();
+    // sourceActor->SetMapper( sourceMapper );
+    // sourceActor->GetProperty()->SetColor( 1, 0, 0 );
+    // sourceActor->GetProperty()->SetPointSize( 4 );
+    // sourceActor->GetMapper()->ScalarVisibilityOff();
+
+    // 2. OBJ File
+    vtkSmartPointer<vtkPolyDataMapper> targetMapper = vtkSmartPointer<vtkPolyDataMapper>::New();
+    targetMapper->SetInputData( obj );
+
+    vtkSmartPointer<vtkActor> targetActor = vtkSmartPointer<vtkActor>::New();
+    targetActor->SetMapper( targetMapper );
+    targetActor->GetProperty()->SetColor( 0, 1, 0 );
+    targetActor->GetProperty()->SetOpacity( 0.5 );
+    targetActor->GetProperty()->SetPointSize( 4 );
+    targetActor->GetMapper()->ScalarVisibilityOff();
+  
+    // 3. Registered Image
+    vtkSmartPointer<vtkPolyDataMapper> solutionMapper = vtkSmartPointer<vtkPolyDataMapper>::New();
+    solutionMapper->SetInputConnection( decimateTransformed->GetOutputPort() );
+
+    vtkSmartPointer<vtkActor> solutionActor = vtkSmartPointer<vtkActor>::New();
+    solutionActor->SetMapper( solutionMapper );
+    solutionActor->GetProperty()->SetColor( 0, 0, 1 );
+    solutionActor->GetProperty()->SetPointSize( 4 );
+    solutionActor->GetMapper()->ScalarVisibilityOff();
 
     // Create the renderer and render window
     vtkSmartPointer<vtkRenderer> renderer = vtkSmartPointer<vtkRenderer>::New();
-    renderer->SetBackground( 0, 0, 0 );
 
     vtkSmartPointer<vtkRenderWindow> renderWindow = vtkSmartPointer<vtkRenderWindow>::New();
     renderWindow->AddRenderer( renderer );
     vtkSmartPointer<vtkRenderWindowInteractor> interactor = vtkSmartPointer<vtkRenderWindowInteractor>::New();
     interactor->SetRenderWindow( renderWindow );
 
-    std::cout << "\nStarting surface rendering...\n";
-
-    // Perform segmentation to extract bone
-    int lowerThresh = 0, upperThresh = 0;
-    double isoValue = 0.0;
-
-    // Get the threshold and isovalue parameters from the user
-    std::cout << "Performing image segmentation \n";
-    std::cout << "Please enter upper and lower threshold values: \n";
-    std::cout << "Lower Threshold = ";
-    std::cin >> lowerThresh;
-    std::cout << "Upper Threshold = ";
-    std::cin >> upperThresh;
-
-    std::cout << "Please enter the desired isovalue for the Marching Cubes algortihm: ";
-    std::cin >> isoValue;
-
-    // Apply the global threshold
-    vtkSmartPointer<vtkImageThreshold> globalThresh = vtkSmartPointer<vtkImageThreshold>::New();
-    globalThresh->SetInputData( volume );
-    globalThresh->ThresholdBetween( lowerThresh, upperThresh );
-    globalThresh->ReplaceInOn();
-    globalThresh->SetInValue( isoValue + 1 );
-    globalThresh->ReplaceOutOn();
-    globalThresh->SetOutValue( 0 );
-    globalThresh->SetOutputScalarTypeToFloat();
-    globalThresh->Update();
-
-    volume = globalThresh->GetOutput();
-
-    // Use the Marching cubes algorithm to generate the surface
-    std::cout << "Generating surface using Marching cubes \n";
-
-    vtkSmartPointer<vtkMarchingCubes> surface = vtkSmartPointer<vtkMarchingCubes>::New();
-    surface->SetInputData( volume );
-    surface->ComputeNormalsOn();
-    surface->SetValue( 0, 1 );
-
-    // Perform ICP registration
-    vtkSmartPointer<vtkIterativeClosestPointTransform> icp = vtkSmartPointer<vtkIterativeClosestPointTransform>::New();
-    icp->SetSource( surface->GetOutput() );
-    icp->SetTarget( obj );
-    icp->SetMaximumNumberOfIterations( 20 );
-    icp->GetLandmarkTransform()->SetModeToRigidBody();
-    icp->StartByMatchingCentroidsOn();
-    icp->Modified();
-    icp->Update();
-
-    vtkSmartPointer<vtkMatrix4x4> m = icp->GetMatrix();
-    std::cout << "The resulting matrix is: " << *m << std::endl;
-
-    vtkSmartPointer<vtkTransformPolyDataFilter> icpTransformFilter = vtkSmartPointer<vtkTransformPolyDataFilter>::New();
-    icpTransformFilter->SetInputData( surface->GetOutput() );
-    icpTransformFilter->SetTransform( icp );
-    icpTransformFilter->Update();
-
-    // Image reslicing
-    vtkSmartPointer<vtkImageReslice> reslice = vtkSmartPointer<vtkImageReslice>::New();
-    reslice->SetInputConnection( surface->GetOutputPort() );
-    reslice->InterpolateOn();
-    reslice->SetResliceTransform( m );
-    reslice->Upate();
-
-    // Define mappers
-    vtkSmartPointer<vtkPolyDataMapper> sourceMapper = vtkSmartPointer<vtkPolyDataMapper>::New();
-    sourceMapper->SetInputData( reslice->GetOutput() );
-
-    vtkSmartPointer<vtkActor> sourceActor = vtkSmartPointer<vtkActor>::New();
-    sourceActor->SetMapper( sourceMapper );
-    sourceActor->GetProperty()->SetColor( 1, 0, 0 );
-    sourceActor->GetProperty()->SetPointSize( 4 );
-
-    vtkSmartPointer<vtkPolyDataMapper> targetMapper = vtkSmartPointer<vtkPolyDataMapper>::New();
-
-    targetMapper->SetInputData( obj );
-
-    vtkSmartPointer<vtkActor> targetActor = vtkSmartPointer<vtkActor>::New();
-    targetActor->SetMapper( targetMapper );
-    targetActor->GetProperty()->SetColor( 0, 1, 0);
-    targetActor->GetProperty()->SetPointSize( 4 );
-  
-    vtkSmartPointer<vtkPolyDataMapper> solutionMapper = vtkSmartPointer<vtkPolyDataMapper>::New();
-    solutionMapper->SetInputConnection( icpTransformFilter->GetOutputPort() );
-
-    vtkSmartPointer<vtkActor> solutionActor = vtkSmartPointer<vtkActor>::New();
-    solutionActor->SetMapper( solutionMapper );
-    solutionActor->GetProperty()->SetColor( 0, 0, 1 );
-    solutionActor->GetProperty()->SetPointSize( 3 );
-
-    renderer->AddActor( sourceActor );
+    // renderer->AddActor( sourceActor );
     renderer->AddActor( targetActor );
     renderer->AddActor( solutionActor );
-    renderer->SetBackground( 0.3, 0.2, 0.6 );
-
-    // vtkSmartPointer<vtkPolyDataMapper> surfaceMapper = vtkSmartPointer<vtkPolyDataMapper>::New();
-    // surfaceMapper->SetInputConnection( surface->GetOutputPort() );
-    // surfaceMapper->ScalarVisibilityOff();
-
-    // vtkSmartPointer<vtkPolyDataMapper> objMapper = vtkSmartPointer<vtkPolyDataMapper>::New();
-    // objMapper->SetInputConnection( obj );
-
-    // Create actors
-    // vtkSmartPointer<vtkActor> objActor = vtkSmartPointer<vtkActor>::New();
-    // objActor->SetMapper( objMapper );
-
-    // vtkSmartPointer<vtkActor> dicomActor = vtkSmartPointer<vtkActor>::New();
-    // dicomActor->SetMapper( surfaceMapper );
-
-    // Render the scene
-    // renderer->AddActor( objActor );
-    // renderer->AddActor( dicomActor );
+    renderer->SetBackground( 0.0, 0.0, 0.0 );
 
     renderWindow->Render();
-    interactor->Start();
 
+    std::cout << "Done! \n";
+
+    interactor->Start();
+    
     return EXIT_SUCCESS;
 }
